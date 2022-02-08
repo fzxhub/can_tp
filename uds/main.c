@@ -12,6 +12,12 @@ bool Send(uint32_t id, uint8_t* msg, uint32_t len)
     return TRUE;
 }
 
+void Isotp_SendCall(bool status)
+{
+    printf("发送OK\r\n");
+}
+
+
 int  main(void)
 {
     uint8_t data[32] = {0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
@@ -25,6 +31,8 @@ int  main(void)
     //Isotp_FlowControlSend(0x111,ISOTP_FLOW_STATUS_CONTINUE,8,0,Send);
 
     Isotp_SendAsyn(0x100,data,32,Send);
+
+    //Isotp_Send(0x100,data,32,Send);
 
 
     while(1)

@@ -144,8 +144,8 @@ bool Isotp_Send(uint32_t id, uint8_t* msg, uint32_t size, Isotp_CanSend CanSend)
     {
         Isotp_FirstSend(id,msg,6,CanSend);
         temp_size = temp_size + 6;
-        //发送延时函数，用于发送间隔
-        //delay();
+        //发送延时函数，用于发送间隔(后续加上远端的能力)
+        DELAY_US();
         while(1)
         {
             //收到流控帧判断(后面加)
@@ -159,8 +159,8 @@ bool Isotp_Send(uint32_t id, uint8_t* msg, uint32_t size, Isotp_CanSend CanSend)
                 temp_size = 0;
                 break;
             } 
-            //发送延时函数，用于发送间隔
-            //delay();
+            //发送延时函数，用于发送间隔(后续加上远端的能力)
+            DELAY_US();
         }
     }
     return TRUE;     
@@ -215,7 +215,6 @@ WEAK void Isotp_SendCall(bool status){}
 //接收部分
 /**********************************************************************************************/
 
-
 void Isotp_Rece(uint32_t id, Isotp_Message* tpmsg, Isotp_CanRece CanRece, Isotp_CanSend CanSend)
 {
 
@@ -263,6 +262,5 @@ void Isotp_Rece(uint32_t id, Isotp_Message* tpmsg, Isotp_CanRece CanRece, Isotp_
             default: break;
         }
     }
-
 }
 

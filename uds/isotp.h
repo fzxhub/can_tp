@@ -11,6 +11,9 @@ typedef unsigned char      bool;
 //#define NULL             0
 #define WEAK                __attribute__ ((weak))  //GCC下若函数定义
 
+//同步操作(发送接收)延时函数，使用操作系统的延时仅仅阻塞调用任务，裸机时阻塞整个CPU。
+#define DELAY_US(x)         ;                       //延时定义
+
 //ISOTP发送帧数据最大字节数
 #define ISOTP_FRAME_BYTE   8
 //ISOTP发送帧按最大帧字节发送
@@ -29,9 +32,7 @@ typedef unsigned char      bool;
 #define ISOTP_FLOW_TIMES     1
 
 
-
-
-
+//帧类型标志
 typedef enum
 {
     ISOTP_SINGLE_FRAME       = 0x0,
@@ -40,7 +41,7 @@ typedef enum
     ISOTP_FLOWCONTROL_FRAME  = 0x3,
 } Isotp_ProtocolControl;
 
-
+//帧状态标志
 typedef enum
 {
     ISOTP_FLOW_STATUS_CONTINUE = 0x0,  
@@ -49,6 +50,7 @@ typedef enum
 } Isotp_FlowStatus;
 
 
+//数据
 typedef struct {
     uint32_t  id;    
     uint8_t   payload[ISOTP_FLOW_BYTE];
@@ -58,13 +60,13 @@ typedef struct {
 } Isotp_Message;
 
 
-
-
-
+//CAN发送函数定义
 typedef bool (*Isotp_CanSend)(uint32_t id, uint8_t* msg, uint32_t size);
+//CAN接收函数定义
 typedef bool (*Isotp_CanRece)(uint32_t* id, uint8_t* msg, uint32_t* size);
 
 
+//发送结构体定义
 typedef struct {
     // uint8_t             block;      //发送时，远端设备流控块数量   
     // uint8_t             stmin;      //发送时，远端接收间隔最小值
@@ -95,17 +97,21 @@ bool Isotp_FirstSend(uint32_t id, uint8_t* data, uint32_t sizes, Isotp_CanSend C
 bool Isotp_ConsecutiveSend(uint32_t id, uint8_t* data, uint32_t size, Isotp_CanSend CanSend);
 bool Isotp_FlowControlSend(uint32_t id, Isotp_FlowStatus status, uint8_t block , uint8_t Stmin, Isotp_CanSend CanSend);
 
-
+/******************************************************************
+ * 同步发送
+*******************************************************************/
 //同步发送，直到发送完成或者失败返回，否则阻塞当前TASK
 bool Isotp_Send(uint32_t id, uint8_t* msg, uint32_t size, Isotp_CanSend CanSend);
 
+/******************************************************************
+ * 异步发送
+*******************************************************************/
 //异步发送消息
 bool Isotp_SendAsyn(uint32_t id, uint8_t* msg, uint32_t size, Isotp_CanSend CanSend);
 //异步消息回调函数，上层实现
 void Isotp_SendCall(bool status);
 //异步发送任务，放入周期TASK中（执行周期注意和本端能力定义匹配，本机发送的流控消息匹配）
 void Isotp_SendTask(float time);
-
 
 #endif
 
