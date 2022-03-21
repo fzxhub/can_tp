@@ -32,6 +32,8 @@ typedef unsigned char      bool;
 #define CANTP_FLOW_TIMES     1
 
 
+/****************************************************************************************/
+
 //帧类型标志
 typedef enum
 {
@@ -49,6 +51,12 @@ typedef enum
     CANTP_FLOW_STATUS_OVERFLOW = 0x2 
 } Cantp_FlowStatus;
 
+//CAN发送函数定义
+typedef bool (*Cantp_CanTx)(uint32_t id, uint8_t* msg, uint32_t size);
+//CAN接收函数定义
+typedef bool (*Cantp_CanRx)(uint32_t* id, uint8_t* msg, uint32_t* size);
+
+/****************************************************************************************/
 
 //数据
 typedef struct {
@@ -59,59 +67,48 @@ typedef struct {
     bool      multi;  
 } Cantp_Message;
 
-
-//CAN发送函数定义
-typedef bool (*Cantp_CanSend)(uint32_t id, uint8_t* msg, uint32_t size);
-//CAN接收函数定义
-typedef bool (*Cantp_CanRece)(uint32_t* id, uint8_t* msg, uint32_t* size);
-
-
-//发送结构体定义
+//发送状态
 typedef struct {
-    // uint8_t             block;      //发送时，远端设备流控块数量   
-    // uint8_t             stmin;      //发送时，远端接收间隔最小值
-    // Cantp_FlowStatus    status;     //发送时，远端的状态 
     uint32_t            send_id;    //发送时，CAN的发送ID
     uint8_t*            data;       //发送时，发送数据指针
     uint32_t            size;       //发送时，需要发送的数据大小
     uint32_t            now_size;   //发送时，当前已经发送大小
     bool                runing;     //发送运行标志
-    Cantp_CanSend       send;       //发送函数
+} Cantp_TxStateStruct;
+//发送状态实例
+Cantp_TxStateStruct Cantp_TxState;
 
-} Cantp_Send_Struct;
-
-
-Cantp_Send_Struct Send_Struct;
-
-
+//CANTP传输能力
 typedef struct {
     uint8_t             block;      //设备流控块数量   
     uint8_t             stmin;      //接收帧间隔最小值
     Cantp_FlowStatus    status;     //状态 
-} Cantp_Ability_Struct;
+} Cantp_AbilityStruct;
+//CANTP传输能力实例
+Cantp_AbilityStruct Cantp_AbilityRemote;
+Cantp_AbilityStruct Cantp_AbilityLocal;
+
+//CANTP注册
+typedef struct {
+    Cantp_CanTx tx;
+    Cantp_CanRx rx;
+} Cantp_CanApiStruct;
+//CANTP注册实例
+Cantp_CanApiStruct Cantp_CanApi;
 
 
 
-bool Cantp_SingleSend(uint32_t id, uint8_t* data, uint32_t size, Cantp_CanSend CanSend);
-bool Cantp_FirstSend(uint32_t id, uint8_t* data, uint32_t sizes, Cantp_CanSend CanSend);
-bool Cantp_ConsecutiveSend(uint32_t id, uint8_t* data, uint32_t size, Cantp_CanSend CanSend);
-bool Cantp_FlowControlSend(uint32_t id, Cantp_FlowStatus status, uint8_t block , uint8_t Stmin, Cantp_CanSend CanSend);
 
-/******************************************************************
- * 同步发送
-*******************************************************************/
-//同步发送，直到发送完成或者失败返回，否则阻塞当前TASK
-bool Cantp_Send(uint32_t id, uint8_t* msg, uint32_t size, Cantp_CanSend CanSend);
 
-/******************************************************************
- * 异步发送
-*******************************************************************/
-//异步发送消息
-bool Cantp_SendAsyn(uint32_t id, uint8_t* msg, uint32_t size, Cantp_CanSend CanSend);
-//异步消息回调函数，上层实现
+
+
 void Cantp_SendCall(bool status);
-//异步发送任务，放入周期TASK中（执行周期注意和本端能力定义匹配，本机发送的流控消息匹配）
-void Cantp_SendTask(float time);
+void Cantp_register(Cantp_CanTx tx, Cantp_CanRx rx);
+bool Cantp_BlockingTx(uint32_t id, uint8_t* msg, uint32_t size);
+bool Cantp_Tx(uint32_t id, uint8_t* msg, uint32_t size);
+void Cantp_TxTask(float time);
+
+
 
 #endif
 

@@ -24,21 +24,9 @@ int  main(void)
                         0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
                         0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
                         0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08
-};
-
-    //Isotp_ConsecutiveSend(0x100,data,8,Send);
-
-    //Isotp_FlowControlSend(0x111,ISOTP_FLOW_STATUS_CONTINUE,8,0,Send);
-
-    //Isotp_SendAsyn(0x100,data,32,Send);
-
-    Cantp_Send(0x100,data,20,Send);
-
-//    while(1)
-//    {
-//        Isotp_SendTask(1);
-//    }
+                        };
 
 
-
+    Cantp_register(Send, NULL);
+    Cantp_BlockingTx(0x100,data,20);
 }
