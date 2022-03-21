@@ -1,5 +1,5 @@
 #include "stdio.h"
-#include "isotp.h"
+#include "cantp.h"
 
 bool Send(uint32_t id, uint8_t* msg, uint32_t len)
 {
@@ -30,15 +30,14 @@ int  main(void)
 
     //Isotp_FlowControlSend(0x111,ISOTP_FLOW_STATUS_CONTINUE,8,0,Send);
 
-    Isotp_SendAsyn(0x100,data,32,Send);
+    //Isotp_SendAsyn(0x100,data,32,Send);
 
-    //Isotp_Send(0x100,data,32,Send);
+    Cantp_Send(0x100,data,20,Send);
 
-
-    while(1)
-    {
-        Isotp_SendTask(1);
-    }
+//    while(1)
+//    {
+//        Isotp_SendTask(1);
+//    }
 
 
 
