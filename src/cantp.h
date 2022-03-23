@@ -25,6 +25,9 @@ typedef unsigned char      bool;
 //CANTP流控最大字节数(也就是本协议最大缓存数据)
 #define CANTP_FLOW_BYTE    256
 
+//CANTP单个CAN接口支持的ID最大个数
+#define CANTP_RXID_MAX      2
+
 //本机接收能力
 //本机发送流控帧间隔块
 #define CANTP_FLOW_BLOCK     8
@@ -65,7 +68,7 @@ typedef struct {
     uint32_t  size;      
     bool      completed;     
     bool      multi;  
-} Cantp_Message;
+} Cantp_RxMsgStruct;
 
 //发送状态
 typedef struct {
@@ -97,6 +100,21 @@ typedef struct {
 Cantp_CanApiStruct Cantp_CanApi;
 
 
+typedef struct {
+    //接收ID的列表
+    uint32_t RxIdList[CANTP_RXID_MAX];
+    //CAN接收、发送接口函数
+    Cantp_CanApiStruct CanApi; 
+    //远程主机的接收能力   
+    Cantp_AbilityStruct Remote[CANTP_RXID_MAX];
+    //本地主机的接收能力  
+    Cantp_AbilityStruct Local[CANTP_RXID_MAX];
+    //发送状态
+    Cantp_TxStateStruct TxState[CANTP_RXID_MAX];
+    //接收消息
+    Cantp_RxMsgStruct   Rxmsg[CANTP_RXID_MAX];
+} Cantp_HandleStruct;
+
 
 
 
@@ -107,6 +125,7 @@ void Cantp_register(Cantp_CanTx tx, Cantp_CanRx rx);
 bool Cantp_BlockingTx(uint32_t id, uint8_t* msg, uint32_t size);
 bool Cantp_Tx(uint32_t id, uint8_t* msg, uint32_t size);
 void Cantp_TxTask(float time);
+void Cantp_RxTask(uint32_t id, Cantp_RxMsgStruct* tpmsg);
 
 
 

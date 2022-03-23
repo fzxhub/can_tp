@@ -255,7 +255,7 @@ WEAK void Cantp_SendCall(bool status){}
 //接收部分
 /**********************************************************************************************/
 
-void Cantp_Rece(uint32_t id, Cantp_Message* tpmsg, Cantp_CanRx CanRece, Cantp_CanTx CanSend)
+void Cantp_RxTask(uint32_t id, Cantp_RxMsgStruct* tpmsg)
 {
 
     uint8_t* msg;
@@ -263,7 +263,7 @@ void Cantp_Rece(uint32_t id, Cantp_Message* tpmsg, Cantp_CanRx CanRece, Cantp_Ca
     static uint32_t msgs_size = 0;
     static uint32_t flow_size = 0;
     static uint32_t msgs_all_size = 0;
-    if (CanRece(&id, msg, &size) == TRUE)
+    if (Cantp_CanApi.rx(&id, msg, &size) == TRUE)
     {
         switch(((*msg)&0xf0)>>4)
         {
@@ -283,7 +283,7 @@ void Cantp_Rece(uint32_t id, Cantp_Message* tpmsg, Cantp_CanRx CanRece, Cantp_Ca
                 tpmsg->multi = TRUE;
                 msgs_size = 6;
                 flow_size = 1;
-                Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,CanSend);
+                Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Cantp_CanApi.tx);
             }break;
             case CANTP_CONSECUTIVE_FRAME:
             {
@@ -292,7 +292,7 @@ void Cantp_Rece(uint32_t id, Cantp_Message* tpmsg, Cantp_CanRx CanRece, Cantp_Ca
                 if(flow_size%CANTP_FLOW_BLOCK == 0)
                 {
                     //这里还有增加收到回调函数
-                    Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,CanSend);
+                    Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Cantp_CanApi.tx);
                 }
                 
             }break;
