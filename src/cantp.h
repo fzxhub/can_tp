@@ -78,8 +78,7 @@ typedef struct {
     uint32_t            now_size;   //发送时，当前已经发送大小
     bool                runing;     //发送运行标志
 } Cantp_TxStateStruct;
-//发送状态实例
-Cantp_TxStateStruct Cantp_TxState;
+
 
 //CANTP传输能力
 typedef struct {
@@ -87,45 +86,42 @@ typedef struct {
     uint8_t             stmin;      //接收帧间隔最小值
     Cantp_FlowStatus    status;     //状态 
 } Cantp_AbilityStruct;
-//CANTP传输能力实例
-Cantp_AbilityStruct Cantp_AbilityRemote;
-Cantp_AbilityStruct Cantp_AbilityLocal;
+
 
 //CANTP注册
 typedef struct {
     Cantp_CanTx tx;
     Cantp_CanRx rx;
 } Cantp_CanApiStruct;
-//CANTP注册实例
-Cantp_CanApiStruct Cantp_CanApi;
+
 
 
 typedef struct {
     //接收ID的列表
     uint32_t RxIdList[CANTP_RXID_MAX];
-    //CAN接收、发送接口函数
-    Cantp_CanApiStruct CanApi; 
     //远程主机的接收能力   
     Cantp_AbilityStruct Remote[CANTP_RXID_MAX];
-    //本地主机的接收能力  
-    Cantp_AbilityStruct Local[CANTP_RXID_MAX];
-    //发送状态
-    Cantp_TxStateStruct TxState[CANTP_RXID_MAX];
     //接收消息
     Cantp_RxMsgStruct   Rxmsg[CANTP_RXID_MAX];
-} Cantp_HandleStruct;
+
+    //CAN接收、发送接口函数
+    Cantp_CanApiStruct CanApi;  
+    //本地主机的接收能力  
+    Cantp_AbilityStruct Local;
+    //发送状态
+    Cantp_TxStateStruct TxState;
+    
+} Cantp_HandlerStruct;
 
 
 
-
-
+void Cantp_register(Cantp_HandlerStruct* Handler, Cantp_CanTx tx, Cantp_CanRx rx);
+bool Cantp_BlockingTx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size);
+bool Cantp_Tx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size);
+void Cantp_TxTask(Cantp_HandlerStruct* Handler, float time);
+void Cantp_RxTask(Cantp_HandlerStruct* Handler, uint32_t id, Cantp_RxMsgStruct* tpmsg);
 
 void Cantp_SendCall(bool status);
-void Cantp_register(Cantp_CanTx tx, Cantp_CanRx rx);
-bool Cantp_BlockingTx(uint32_t id, uint8_t* msg, uint32_t size);
-bool Cantp_Tx(uint32_t id, uint8_t* msg, uint32_t size);
-void Cantp_TxTask(float time);
-void Cantp_RxTask(uint32_t id, Cantp_RxMsgStruct* tpmsg);
 
 
 

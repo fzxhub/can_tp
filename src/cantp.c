@@ -148,15 +148,22 @@ bool Cantp_FlowControl(uint32_t id, Cantp_FlowStatus status, uint8_t block , uin
  * 以下是对外接口
  ************************************************************************************************************/
 
+
 /*
  * 功能：注册CAN的发送接收函数
  * tx：发送函数指针
  * rx：接收函数指针
 */
-void Cantp_register(Cantp_CanTx tx, Cantp_CanRx rx)
+void Cantp_register(Cantp_HandlerStruct* Handler, Cantp_CanTx tx, Cantp_CanRx rx)
 {
-    Cantp_CanApi.rx = rx;
-    Cantp_CanApi.tx = tx;
+    Handler->CanApi.rx = rx;
+    Handler->CanApi.tx = tx;
+    Handler->Local.stmin = 1;
+    Handler->Local.block = 8;
+    Handler->RxIdList[0] = 0x123;
+    Handler->RxIdList[1] = 0x456;
+
+    Handler->Rxmsg[0].completed = 0;
 }
 
 /*
@@ -165,16 +172,16 @@ void Cantp_register(Cantp_CanTx tx, Cantp_CanRx rx)
  * msg：发送数据
  * size：发送大小
 */
-bool Cantp_BlockingTx(uint32_t id, uint8_t* msg, uint32_t size)
+bool Cantp_BlockingTx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size)
 {
     static uint32_t temp_size = 0;
     static uint8_t temp_flow = 0;
     static uint8_t temp_stmin = 0;
     if(size <= 7)
-        return Cantp_Single(id,msg,size,Cantp_CanApi.tx); 
+        return Cantp_Single(id,msg,size,Handler->CanApi.tx); 
     else
     {
-        Cantp_First(id,msg,6,Cantp_CanApi.tx);
+        Cantp_First(id,msg,size,Handler->CanApi.tx);
         temp_size = temp_size + 6;
         //发送延时函数，用于发送间隔(后续加上远端的能力)
         DELAY_US();
@@ -184,7 +191,7 @@ bool Cantp_BlockingTx(uint32_t id, uint8_t* msg, uint32_t size)
             if(1)
             {
             }
-            Cantp_Consecutive(id,msg+temp_size,size-temp_size,Cantp_CanApi.tx);
+            Cantp_Consecutive(id,msg+temp_size,size-temp_size,Handler->CanApi.tx);
             if(size > temp_size + 7)  temp_size = temp_size + 7;
             else
             {
@@ -204,14 +211,16 @@ bool Cantp_BlockingTx(uint32_t id, uint8_t* msg, uint32_t size)
  * msg：发送数据
  * size：发送大小
 */
-bool Cantp_Tx(uint32_t id, uint8_t* msg, uint32_t size)
+bool Cantp_Tx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size)
 {
     if(size > CANTP_MESSAGE_BYTE) return FALSE;
-    Cantp_TxState.send_id = id;
-    Cantp_TxState.data = msg;
-    Cantp_TxState.size = size;
-    Cantp_TxState.now_size = 0;
-    Cantp_TxState.runing = TRUE;
+
+    Handler->TxState.send_id = id;
+    Handler->TxState.data = msg;
+    Handler->TxState.size = size;
+    Handler->TxState.now_size = 0;
+    Handler->TxState.runing = TRUE;
+
     return TRUE;
 }
 
@@ -219,30 +228,30 @@ bool Cantp_Tx(uint32_t id, uint8_t* msg, uint32_t size)
  * 功能：发送任务函数
  * time：调用周期时间
 */
-void Cantp_TxTask(float time)
+void Cantp_TxTask(Cantp_HandlerStruct* Handler, float time)
 {
-    if(Cantp_TxState.runing == FALSE) return;
+    if(Handler->TxState.runing == FALSE) return; 
     
-    if(Cantp_TxState.now_size == 0)
+    if(Handler->TxState.now_size == 0)
     {
-        if(Cantp_TxState.size <= 7)
-            Cantp_Single(Cantp_TxState.send_id,Cantp_TxState.data,Cantp_TxState.size,Cantp_CanApi.tx); 
+        if(Handler->TxState.size <= 7)
+            Cantp_Single(Handler->TxState.send_id,Handler->TxState.data,Handler->TxState.size,Handler->CanApi.tx); 
         else
         {
-            Cantp_First(Cantp_TxState.send_id,Cantp_TxState.data,6,Cantp_CanApi.tx);
-            Cantp_TxState.now_size = Cantp_TxState.now_size + 6;
+            Cantp_First(Handler->TxState.send_id,Handler->TxState.data,6,Handler->CanApi.tx);
+            Handler->TxState.now_size = Handler->TxState.now_size + 6;
         }
     }
     else
     {
-        Cantp_Consecutive(Cantp_TxState.send_id,Cantp_TxState.data+Cantp_TxState.now_size,
-        Cantp_TxState.size-Cantp_TxState.now_size,Cantp_CanApi.tx);
-        if(Cantp_TxState.size > Cantp_TxState.now_size + 7)  
-            Cantp_TxState.now_size = Cantp_TxState.now_size + 7;
+        Cantp_Consecutive(Handler->TxState.send_id,Handler->TxState.data+Handler->TxState.now_size,
+        Handler->TxState.size-Handler->TxState.now_size,Handler->CanApi.tx);
+        if(Handler->TxState.size > Handler->TxState.now_size + 7)  
+            Handler->TxState.now_size = Handler->TxState.now_size + 7;
         else
         {
-            Cantp_TxState.now_size = 0;
-            Cantp_TxState.runing = FALSE;
+            Handler->TxState.now_size = 0;
+            Handler->TxState.runing = FALSE;
             Cantp_SendCall(TRUE);
         } 
     }
@@ -255,7 +264,7 @@ WEAK void Cantp_SendCall(bool status){}
 //接收部分
 /**********************************************************************************************/
 
-void Cantp_RxTask(uint32_t id, Cantp_RxMsgStruct* tpmsg)
+void Cantp_RxTask(Cantp_HandlerStruct* Handler, uint32_t id, Cantp_RxMsgStruct* tpmsg)
 {
 
     uint8_t* msg;
@@ -263,7 +272,7 @@ void Cantp_RxTask(uint32_t id, Cantp_RxMsgStruct* tpmsg)
     static uint32_t msgs_size = 0;
     static uint32_t flow_size = 0;
     static uint32_t msgs_all_size = 0;
-    if (Cantp_CanApi.rx(&id, msg, &size) == TRUE)
+    if (Handler->CanApi.rx(&id, msg, &size) == TRUE)
     {
         switch(((*msg)&0xf0)>>4)
         {
@@ -283,7 +292,7 @@ void Cantp_RxTask(uint32_t id, Cantp_RxMsgStruct* tpmsg)
                 tpmsg->multi = TRUE;
                 msgs_size = 6;
                 flow_size = 1;
-                Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Cantp_CanApi.tx);
+                Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Handler->CanApi.tx);
             }break;
             case CANTP_CONSECUTIVE_FRAME:
             {
@@ -292,15 +301,15 @@ void Cantp_RxTask(uint32_t id, Cantp_RxMsgStruct* tpmsg)
                 if(flow_size%CANTP_FLOW_BLOCK == 0)
                 {
                     //这里还有增加收到回调函数
-                    Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Cantp_CanApi.tx);
+                    Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Handler->CanApi.tx);
                 }
                 
             }break;
             case CANTP_FLOWCONTROL_FRAME:
             {
-                Cantp_AbilityRemote.block = *(msg+1);
-                Cantp_AbilityRemote.status = *(msg) & 0x0F;
-                Cantp_AbilityRemote.stmin = *(msg+2);
+                //Cantp_AbilityRemote.block = *(msg+1);
+                //Cantp_AbilityRemote.status = *(msg) & 0x0F;
+                //Cantp_AbilityRemote.stmin = *(msg+2);
             }break;
             default: break;
         }
