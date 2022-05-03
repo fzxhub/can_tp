@@ -42,7 +42,16 @@ int  main(void)
     
 
 
-    Cantp_register(&Cantp_Handler, Send, NULL);
+    // Cantp_register(&Cantp_Handler, Send, NULL);
 
-    Cantp_BlockingTx(&Cantp_Handler,0x100,data,120);
+    // //Cantp_TxBlocking(&Cantp_Handler,0x100,data,120);
+    // Cantp_Tx(&Cantp_Handler,0x100,data,120);
+
+    // while(1)
+    // {
+        
+    //     Cantp_TxTask(&Cantp_Handler, 1);
+    // }
+
+
 }

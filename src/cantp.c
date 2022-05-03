@@ -2,10 +2,9 @@
 #include "string.h"
 #include "stdio.h"
 
-/**********************************************************************************************/
-//发送部分
-/**********************************************************************************************/
-
+/***************************************************************************************************************/
+//内部发送函数，发送分割函数
+/***************************************************************************************************************/
 /*
  * 功能：单帧发送
  * id：发送的CAN帧ID
@@ -38,7 +37,6 @@ bool Cantp_Single(uint32_t id, uint8_t* msg, uint32_t size, Cantp_CanTx send)
     //发送CAN帧数据
     return send(id,temp_data,temp_size);
 }
-
 /*
  * 功能：首帧发送
  * id：发送的CAN帧ID
@@ -63,7 +61,6 @@ bool Cantp_First(uint32_t id, uint8_t* msg, uint32_t sizes, Cantp_CanTx send)
     //发送CAN帧数据
     return send(id,temp,CANTP_FRAME_BYTE);
 }
-
 /*
  * 功能：连续帧发送
  * id：发送的CAN帧ID
@@ -108,7 +105,6 @@ bool Cantp_Consecutive(uint32_t id, uint8_t* msg, uint32_t size, Cantp_CanTx sen
     //发送CAN帧数据
     return send(id,temp_data,temp_size);
 }
-
 /*
  * 功能：流控帧发送
  * id：发送的CAN帧ID
@@ -143,68 +139,100 @@ bool Cantp_FlowControl(uint32_t id, Cantp_FlowStatus status, uint8_t block , uin
     return send(id,temp_data,temp_size);
 }
 
-
-/************************************************************************************************************
- * 以下是对外接口
- ************************************************************************************************************/
-
-
+/***************************************************************************************************************/
+//对外接口函数
+/***************************************************************************************************************/
 /*
  * 功能：注册CAN的发送接收函数
  * tx：发送函数指针
  * rx：接收函数指针
 */
-void Cantp_register(Cantp_HandlerStruct* Handler, Cantp_CanTx tx, Cantp_CanRx rx)
+void Cantp_register(Cantp_HandlerStruct* Handler, Cantp_CanTx tx, Cantp_CanRx rx, uint32_t rxid, uint32_t txid)
 {
     Handler->CanApi.rx = rx;
     Handler->CanApi.tx = tx;
-    Handler->Local.stmin = 1;
+    Handler->Local.stmin = 0;
     Handler->Local.block = 8;
-    Handler->RxIdList[0] = 0x123;
-    Handler->RxIdList[1] = 0x456;
-
-    Handler->Rxmsg[0].completed = 0;
+    Handler->RxIdList[0] = rxid;
+    Handler->TxIdList[0] = txid;
 }
-
 /*
  * 功能：阻塞式发送
  * id：发送的CAN帧ID
  * msg：发送数据
  * size：发送大小
 */
-bool Cantp_BlockingTx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size)
+bool Cantp_TxBlocking(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size)
 {
-    static uint32_t temp_size = 0;
-    static uint8_t temp_flow = 0;
-    static uint8_t temp_stmin = 0;
+    uint32_t temp_size = 0;
+    uint8_t temp_flow = 0;
+    uint8_t temp_stmin = 0;
+    int32_t temp_index = -1;
+    int32_t temp_times = 0;
+    //索引ID是否在检测表中
+    for(int i = 0; i < CANTP_ID_MAX; i++)
+    {
+        if(id == Handler->TxIdList[i])
+        {
+            temp_index = i;
+            break;
+        }
+    }
     if(size <= 7)
         return Cantp_Single(id,msg,size,Handler->CanApi.tx); 
     else
     {
         Cantp_First(id,msg,size,Handler->CanApi.tx);
         temp_size = temp_size + 6;
-        //发送延时函数，用于发送间隔(后续加上远端的能力)
-        DELAY_US();
+        temp_flow++;
         while(1)
         {
-            //收到流控帧判断(后面加)
-            if(1)
+            if((temp_index != -1) && (Handler->Rxmsg[temp_index].flow == TRUE))
             {
+                Handler->Rxmsg[temp_index].flow = FALSE;
+                goto SEND2;
             }
+            else 
+            {
+                DELAY_US();
+                temp_times++;
+                if(temp_times >= 1000) return FALSE;
+            }
+        }        
+    SEND2:
+        while(1)
+        {
+            if(temp_flow%CANTP_FLOW_BLOCK==0)
+            {
+                while(1)
+                {
+                    if((temp_index != -1) && (Handler->Rxmsg[temp_index].flow == TRUE))
+                    {
+                        Handler->Rxmsg[temp_index].flow = FALSE;
+                        goto CONTINUE;
+                    }
+                    else 
+                    {
+                        DELAY_US();
+                        temp_times++;
+                        if(temp_times >= 1000) return FALSE;
+                    }
+                }
+            }
+            CONTINUE:
             Cantp_Consecutive(id,msg+temp_size,size-temp_size,Handler->CanApi.tx);
+            temp_flow++;
             if(size > temp_size + 7)  temp_size = temp_size + 7;
             else
             {
                 temp_size = 0;
                 break;
-            } 
-            //发送延时函数，用于发送间隔(后续加上远端的能力)
+            }
             DELAY_US();
         }
     }
     return TRUE;     
 }
-
 /*
  * 功能：非阻塞式发送
  * id：发送的CAN帧ID
@@ -215,104 +243,177 @@ bool Cantp_Tx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t 
 {
     if(size > CANTP_MESSAGE_BYTE) return FALSE;
 
-    Handler->TxState.send_id = id;
+    Handler->TxState.id = id;
     Handler->TxState.data = msg;
-    Handler->TxState.size = size;
-    Handler->TxState.now_size = 0;
+    Handler->TxState.allsize = size;
+    Handler->TxState.size = 0;
     Handler->TxState.runing = TRUE;
 
     return TRUE;
 }
-
 /*
  * 功能：发送任务函数
  * time：调用周期时间
 */
-void Cantp_TxTask(Cantp_HandlerStruct* Handler, float time)
+void Cantp_TxTask(Cantp_HandlerStruct* Handler)
 {
-    if(Handler->TxState.runing == FALSE) return; 
-    
-    if(Handler->TxState.now_size == 0)
+    int32_t temp_index = -1;
+    if(Handler->TxState.runing == FALSE) return;
+    //索引ID是否在检测表中
+    for(int i = 0; i < CANTP_ID_MAX; i++)
     {
-        if(Handler->TxState.size <= 7)
-            Cantp_Single(Handler->TxState.send_id,Handler->TxState.data,Handler->TxState.size,Handler->CanApi.tx); 
+        if(Handler->TxState.id == Handler->TxIdList[i])
+        {
+            temp_index = i;
+            break;
+        }
+    } 
+    //发送
+    if(Handler->TxState.size == 0) //已经发送大小为0，表示才开始发送
+    {
+        if(Handler->TxState.allsize <= 7) //小于7字节要发送，单帧即可发送完
+            Cantp_Single(Handler->TxState.id,Handler->TxState.data,Handler->TxState.allsize,Handler->CanApi.tx); 
         else
         {
-            Cantp_First(Handler->TxState.send_id,Handler->TxState.data,6,Handler->CanApi.tx);
-            Handler->TxState.now_size = Handler->TxState.now_size + 6;
+            Cantp_First(Handler->TxState.id,Handler->TxState.data,Handler->TxState.allsize,Handler->CanApi.tx);
+            Handler->TxState.size = Handler->TxState.size + 6;
+            Handler->TxState.frame++;
         }
     }
     else
     {
-        Cantp_Consecutive(Handler->TxState.send_id,Handler->TxState.data+Handler->TxState.now_size,
-        Handler->TxState.size-Handler->TxState.now_size,Handler->CanApi.tx);
-        if(Handler->TxState.size > Handler->TxState.now_size + 7)  
-            Handler->TxState.now_size = Handler->TxState.now_size + 7;
+        if(Handler->TxState.frame%CANTP_FLOW_BLOCK == 0)
+        {
+            if((temp_index != -1) && (Handler->Rxmsg[temp_index].flow == FALSE)) 
+            {
+                Handler->Rxmsg[temp_index].flow = FALSE;
+                return;
+            }
+        }
+        Cantp_Consecutive(Handler->TxState.id,Handler->TxState.data+Handler->TxState.size,
+        Handler->TxState.allsize-Handler->TxState.size,Handler->CanApi.tx);
+        if(Handler->TxState.allsize > Handler->TxState.size + 7)  
+            Handler->TxState.size = Handler->TxState.size + 7;
         else
         {
-            Handler->TxState.now_size = 0;
+            Handler->TxState.size = 0;
             Handler->TxState.runing = FALSE;
-            Cantp_SendCall(TRUE);
+            Cantp_TxCallback(Handler, Handler->TxState.id);
         } 
     }
 }
-
-WEAK void Cantp_SendCall(bool status){}
 
 
 /**********************************************************************************************/
 //接收部分
 /**********************************************************************************************/
 
-void Cantp_RxTask(Cantp_HandlerStruct* Handler, uint32_t id, Cantp_RxMsgStruct* tpmsg)
+void Cantp_RxTask(Cantp_HandlerStruct* Handler, Cantp_CallWay way,uint32_t id, uint8_t* msg, uint32_t size)
 {
+    //暂存消息
+    uint8_t msg_temp[CANTP_FRAME_BYTE];
+    //以下指向实际数据的中间数据
+    uint8_t* msg_c;
+    uint32_t size_c;
+    uint32_t id_c;
 
-    uint8_t* msg;
-    uint32_t size;
-    static uint32_t msgs_size = 0;
-    static uint32_t flow_size = 0;
-    static uint32_t msgs_all_size = 0;
-    if (Handler->CanApi.rx(&id, msg, &size) == TRUE)
+    if(way == CALL_BACK)
     {
-        switch(((*msg)&0xf0)>>4)
+        msg_c = msg;
+        size_c = size;
+        id_c = id;
+    }
+    else if(way == CALL_TASK)
+    {
+        msg_c = msg_temp;
+        if(Handler->CanApi.rx(&id_c, msg, &size_c) == FALSE)
+            return;
+    }
+    for(int i = 0; i < CANTP_ID_MAX; i++)
+    {
+        if(Handler->RxIdList[i] == id_c)
         {
-            case CANTP_SINGLE_FRAME:
+            switch(((*msg)&0xf0)>>4)
             {
-                tpmsg->size = (*msg)&0x0F;
-                memcpy(tpmsg->payload,msg,tpmsg->size);
-                tpmsg->completed = TRUE;
-                tpmsg->multi = FALSE;    
-            }break;
-            case CANTP_FIRST_FRAME:
-            {
-                msgs_all_size = (((*msg)&0x0F)<<8) + *(msg+1);
-                //首帧数据只剩下6个字节有效数据
-                memcpy(tpmsg->payload,msg+2,6);
-                tpmsg->completed = FALSE;
-                tpmsg->multi = TRUE;
-                msgs_size = 6;
-                flow_size = 1;
-                Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Handler->CanApi.tx);
-            }break;
-            case CANTP_CONSECUTIVE_FRAME:
-            {
-                
-                //表示每收到BLOCK整数倍时需要发送流控帧
-                if(flow_size%CANTP_FLOW_BLOCK == 0)
+                case CANTP_SINGLE_FRAME:
                 {
-                    //这里还有增加收到回调函数
-                    Cantp_FlowControl(id,CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Handler->CanApi.tx);
-                }
-                
-            }break;
-            case CANTP_FLOWCONTROL_FRAME:
-            {
-                //Cantp_AbilityRemote.block = *(msg+1);
-                //Cantp_AbilityRemote.status = *(msg) & 0x0F;
-                //Cantp_AbilityRemote.stmin = *(msg+2);
-            }break;
-            default: break;
+                    Handler->Rxmsg[i].size = (*msg)&0x0F;
+                    memcpy(Handler->Rxmsg[i].payload,msg,Handler->Rxmsg[i].size);
+                    Handler->Rxmsg[i].completed = TRUE;
+                    Handler->Rxmsg[i].multi = FALSE;
+                    Cantp_RxCallback(Handler,Handler->RxIdList[i],Handler->Rxmsg[i].payload,Handler->Rxmsg[i].size);                        
+                }break;
+                case CANTP_FIRST_FRAME:
+                {
+                    Handler->Rxmsg[i].allsize = (((*msg)&0x0F)<<8) + *(msg+1);
+                    //首帧数据只剩下6个字节有效数据
+                    memcpy(Handler->Rxmsg[i].payload,msg+2,6);
+                    Handler->Rxmsg[i].completed = FALSE;
+                    Handler->Rxmsg[i].multi = TRUE;
+                    Handler->Rxmsg[i].size = 6;
+                    Handler->Rxmsg[i].frame = 1;
+                    Cantp_FlowControl(Handler->TxIdList[i],CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Handler->CanApi.tx);
+                }break;
+                case CANTP_CONSECUTIVE_FRAME:
+                {
+                    if(Handler->Rxmsg[i].allsize >= Handler->Rxmsg[i].size + 7)
+                    {
+                        memcpy(Handler->Rxmsg[i].payload + Handler->Rxmsg[i].size, msg+1, 7);
+                        Handler->Rxmsg[i].size += 7;
+                        Handler->Rxmsg[i].frame++;
+                    }
+                    else
+                    {
+                        memcpy(Handler->Rxmsg[i].payload + Handler->Rxmsg[i].size, msg+1, Handler->Rxmsg[i].allsize - Handler->Rxmsg[i].size);
+                        Handler->Rxmsg[i].size = Handler->Rxmsg[i].allsize;
+                        Handler->Rxmsg[i].frame++;
+                    }
+                    if(Handler->Rxmsg[i].allsize == Handler->Rxmsg[i].size)
+                    {
+                        Handler->Rxmsg[i].completed = TRUE;
+                        Cantp_RxCallback(Handler,Handler->RxIdList[i],Handler->Rxmsg[i].payload,Handler->Rxmsg[i].size);
+                    }
+                    //表示每收到BLOCK整数倍时需要发送流控帧
+                    if(Handler->Rxmsg[i].frame%CANTP_FLOW_BLOCK == 0)
+                    {
+                        Cantp_FlowControl(Handler->TxIdList[i],CANTP_FLOW_STATUS_CONTINUE,CANTP_FLOW_BLOCK,CANTP_FLOW_TIMES,Handler->CanApi.tx);
+                    }
+                    
+                }break;
+                case CANTP_FLOWCONTROL_FRAME: //收到流控帧
+                {
+                    Handler->Rxmsg[i].flow = TRUE; 
+                    Handler->Remote[i].block = *(msg+1);
+                    Handler->Remote[i].status = *(msg) & 0x0F;
+                    Handler->Remote[i].stmin = *(msg+2);
+                }break;
+                default: break;
+            }
         }
+        break;
     }
 }
 
+/*
+ * 功能：接收
+ * id：CAN帧ID
+ * msg：数据
+ * size：大小
+*/
+bool Cantp_Rx(Cantp_HandlerStruct* Handler, uint32_t* id, uint8_t* msg, uint32_t* size)
+{
+    for(int i = 0; i < CANTP_ID_MAX; i++)
+    {
+        if(Handler->Rxmsg[i].completed == TRUE)
+        {
+            id = &Handler->RxIdList[i];
+            msg = Handler->Rxmsg[i].payload;
+            size = &Handler->Rxmsg[i].size;
+            return TRUE;
+        }
+    }
+    return FALSE;
+}
+
+ void WEAK Cantp_RxCallback(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size){}
+ void WEAK Cantp_TxCallback(Cantp_HandlerStruct* Handler, uint32_t id){}
