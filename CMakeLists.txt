@@ -8,4 +8,4 @@ include_directories(src)
 add_executable(can_tp
         src/cantp.c
         src/cantp.h
-        example/main.c)
+        example/can_gcc/main.c)
