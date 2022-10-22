@@ -147,9 +147,14 @@ void Cantp_CanRegister(Cantp_HandlerStruct* Handler, Cantp_CanTx_t tx, Cantp_Can
 {
     Handler->CanRx = rx;
     Handler->CanTx = tx;
-    Handler->Local.stmin = 0; 
-    Handler->Local.block = 8; 
 }
+
+void Cantp_AbilityRegister(Cantp_HandlerStruct* Handler, uint8_t stmin, uint8_t block)
+{
+    Handler->Local.stmin = stmin; 
+    Handler->Local.block = block;
+}
+
 void Cantp_CallbackRegister(Cantp_HandlerStruct* Handler, uint32_t ch, Cantp_TxCallback_t tx, Cantp_RxCallback_t rx)
 {
     if(ch < CANTP_CALL_MAX)
@@ -189,12 +194,13 @@ bool_t Cantp_TxBlocking(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg,
             break;
         }
     }
-    if(size <= 7)
+    if(size <= (CANTP_FRAME_BYTE - 1))
         return Cantp_Single(id,msg,size,Handler->CanTx); 
     else
     {
-        Cantp_First(id,msg,size,Handler->CanTx);
-        temp_size = temp_size + 6;
+        if(Cantp_First(id, msg, size, Handler->CanTx) == FALSE)
+            return FALSE;
+        temp_size = temp_size + (CANTP_FRAME_BYTE - 2); //head used 2 bytes
         temp_flow++;
         if(temp_index != -1)
         {
@@ -210,37 +216,61 @@ bool_t Cantp_TxBlocking(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg,
                 }
                 else 
                 {
-                    DELAY_US();
+                    DELAY_MS(1);
                     temp_times++;
-                    if(temp_times >= 1000) return FALSE;
+                    if(temp_times >= CANTP_WAIT_FLOW) return FALSE;
                 }
             }
         }        
     SEND2:
         while(1)
         {
-            if(temp_flow%Handler->Local.block==0 && (temp_index != -1))
+            if(temp_index != -1)
             {
-                Handler->TxState.wait = TRUE;
-                while(1)
+                if(temp_flow <= 1)  
                 {
-                    if(Handler->Rxmsg[temp_index].flow == TRUE)
+                    Handler->TxState.wait = TRUE;
+                    while(1)
                     {
-                        Handler->Rxmsg[temp_index].flow = FALSE;
-                        Handler->TxState.wait = FALSE;
-                        temp_times = 0;
-                        goto CONTINUE;
+                        if(Handler->Rxmsg[temp_index].flow == TRUE)
+                        {
+                            Handler->Rxmsg[temp_index].flow = FALSE;
+                            Handler->TxState.wait = FALSE;
+                            temp_times = 0;
+                            goto CONTINUE;
+                        }
+                        else 
+                        {
+                            DELAY_MS(1);
+                            temp_times++;
+                            if(temp_times >= CANTP_WAIT_FLOW) return FALSE;
+                        }
                     }
-                    else 
+                }        
+                else if (Handler->Remote[temp_index].block != 0 && (temp_flow - 1) % Handler->Remote[temp_index].block == 0)
+                {
+                    Handler->TxState.wait = TRUE;
+                    while(1)
                     {
-                        DELAY_US();
-                        temp_times++;
-                        if(temp_times >= 1000) return FALSE;
+                        if(Handler->Rxmsg[temp_index].flow == TRUE)
+                        {
+                            Handler->Rxmsg[temp_index].flow = FALSE;
+                            Handler->TxState.wait = FALSE;
+                            temp_times = 0;
+                            goto CONTINUE;
+                        }
+                        else 
+                        {
+                            DELAY_MS(1);
+                            temp_times++;
+                            if(temp_times >= CANTP_WAIT_FLOW) return FALSE;
+                        }
                     }
                 }
             }
             CONTINUE:
-            Cantp_Consecutive(id,msg+temp_size,size-temp_size,Handler->CanTx);
+            if(Cantp_Consecutive(id, msg+temp_size, size-temp_size, Handler->CanTx) == FALSE)
+                return FALSE;
             temp_flow++;
             if(size > temp_size + 7)  temp_size = temp_size + 7;
             else
@@ -248,7 +278,7 @@ bool_t Cantp_TxBlocking(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg,
                 temp_size = 0;
                 break;
             }
-            DELAY_US();
+            DELAY_MS(CANTP_FRAME_INTER);
         }
     }
     return TRUE;     
@@ -279,6 +309,7 @@ bool_t Cantp_Tx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_
 void Cantp_TxTask(Cantp_HandlerStruct* Handler)
 {
     int32_t temp_index = -1;
+    bool_t ret = FALSE;
     if(Handler->TxState.runing == FALSE) return;
     //Check if the ID is in the list
     for(int i = 0; i < CANTP_ID_MAX; i++)
@@ -292,49 +323,86 @@ void Cantp_TxTask(Cantp_HandlerStruct* Handler)
     //Send
     if(Handler->TxState.size == 0) //Start Send
     {
-        if(Handler->TxState.allsize <= 7) //if less than 7,send thought Single
+        if(Handler->TxState.allsize <= (CANTP_FRAME_BYTE - 1)) //if less than 7,send thought Single
         {
-            Cantp_Single(Handler->TxState.id, Handler->TxState.payload, Handler->TxState.allsize, Handler->CanTx);
+            ret = Cantp_Single(Handler->TxState.id, Handler->TxState.payload, Handler->TxState.allsize, Handler->CanTx);
             Handler->TxState.size = 0;
             Handler->TxState.frame = 0;
             Handler->TxState.runing = FALSE;
             for(int i = 0; i < CANTP_CALL_MAX; i++)
-                Handler->TxCallback[i](Handler->TxState.id);
+                if(Handler->TxCallback[i] != NULL)
+                    Handler->TxCallback[i](Handler->TxState.id, ret);
         }
         else
         {
-            Cantp_First(Handler->TxState.id, Handler->TxState.payload, Handler->TxState.allsize, Handler->CanTx);
-            Handler->TxState.size = Handler->TxState.size + 6;
+            ret = Cantp_First(Handler->TxState.id, Handler->TxState.payload, Handler->TxState.allsize, Handler->CanTx);
+            if(ret == FALSE)
+            {
+                for(int i = 0; i < CANTP_CALL_MAX; i++)
+                    if(Handler->TxCallback[i] != NULL)
+                        Handler->TxCallback[i](Handler->TxState.id, ret);
+            }    
+            Handler->TxState.size = Handler->TxState.size + (CANTP_FRAME_BYTE - 2);
             Handler->TxState.frame++;
         }
     }
     else
     {
-        if((Handler->TxState.frame%Handler->Local.block == 0) || (Handler->TxState.frame == 1))
+        if(temp_index != -1)  //Indicates that the ID is in the sending list
         {
-            Handler->TxState.wait = TRUE;
-            if((temp_index != -1) && (Handler->Rxmsg[temp_index].flow == TRUE)) 
+            static uint32_t flow_time = 0;
+            if(Handler->TxState.frame <= 1)   //flow control after the first frame
             {
-                Handler->Rxmsg[temp_index].flow = FALSE;
-                Handler->TxState.wait = FALSE;
+                Handler->TxState.wait = TRUE;
+                flow_time ++;
+                if(Handler->Rxmsg[temp_index].flow == TRUE) 
+                {
+                    Handler->Rxmsg[temp_index].flow = FALSE;
+                    Handler->TxState.wait = FALSE;
+                    flow_time = 0;
+                }
+                else return;
             }
-            else if((temp_index != -1) && (Handler->Rxmsg[temp_index].flow == FALSE))
+            //When the flow control is not equal to 0, a specific number of frames flow control is required
+            else if(Handler->Remote[temp_index].block != 0 && ((Handler->TxState.frame - 1) % Handler->Remote[temp_index].block == 0))
             {
-                return;
+                Handler->TxState.wait = TRUE;
+                flow_time ++;
+                if(Handler->Rxmsg[temp_index].flow == TRUE) 
+                {
+                    Handler->Rxmsg[temp_index].flow = FALSE;
+                    Handler->TxState.wait = FALSE;
+                    flow_time = 0;
+                }
+                else return;
+            }
+            if(flow_time >= CANTP_TXWAIT_FLOW)
+            {
+                for(int i = 0; i < CANTP_CALL_MAX; i++)
+                    if(Handler->TxCallback[i] != NULL)
+                        Handler->TxCallback[i](Handler->TxState.id, FALSE);
+                flow_time = 0;
             }
         }
         Cantp_Consecutive(Handler->TxState.id, Handler->TxState.payload+Handler->TxState.size,
         Handler->TxState.allsize-Handler->TxState.size, Handler->CanTx);
+        if(ret == FALSE)
+        {
+            for(int i = 0; i < CANTP_CALL_MAX; i++)
+                if(Handler->TxCallback[i] != NULL)
+                    Handler->TxCallback[i](Handler->TxState.id, ret);
+        } 
         Handler->TxState.frame++;
-        if(Handler->TxState.allsize > Handler->TxState.size + 7)  
-            Handler->TxState.size = Handler->TxState.size + 7;
+        if(Handler->TxState.allsize > Handler->TxState.size + (CANTP_FRAME_BYTE - 1))  
+            Handler->TxState.size = Handler->TxState.size + (CANTP_FRAME_BYTE - 1);
         else
         {
             Handler->TxState.size = 0;
             Handler->TxState.frame = 0;
             Handler->TxState.runing = FALSE;
             for(int i = 0; i < CANTP_CALL_MAX; i++)
-                Handler->TxCallback[i](Handler->TxState.id);
+                if(Handler->TxCallback[i] != NULL)
+                    Handler->TxCallback[i](Handler->TxState.id, ret);
         } 
     }
 }
@@ -379,28 +447,28 @@ void Cantp_RxTask(Cantp_HandlerStruct* Handler, Cantp_CallWay way,uint32_t id, u
                     Handler->Rxmsg[i].completed = TRUE;
                     Handler->Rxmsg[i].multi = FALSE;
                     for(int i = 0; i < CANTP_CALL_MAX; i++)
-                        Handler->RxCallback[i](Handler->RxIdList[i],Handler->Rxmsg[i].payload,Handler->Rxmsg[i].size);                      
+                        if(Handler->RxCallback[i] != NULL)
+                            Handler->RxCallback[i](Handler->RxIdList[i],Handler->Rxmsg[i].payload,Handler->Rxmsg[i].size);                      
                 }break;
                 case CANTP_FIRST_FRAME:
                 {
                     Handler->Rxmsg[i].allsize = (((*msg_c)&0x0F)<<8) + *(msg_c+1);
                     //There are only 6 valid slots left in the first frame
-                    memcpy(Handler->Rxmsg[i].payload,msg_c+2,6);
+                    memcpy(Handler->Rxmsg[i].payload, msg_c+2, (CANTP_FRAME_BYTE - 2));
                     Handler->Rxmsg[i].completed = FALSE;
                     Handler->Rxmsg[i].multi = TRUE;
-                    Handler->Rxmsg[i].size = 6;
+                    Handler->Rxmsg[i].size = (CANTP_FRAME_BYTE - 2);
                     Handler->Rxmsg[i].frame = 1;
-                    Cantp_FlowControl(Handler->TxIdList[i],CANTP_FLOW_STATUS_CONTINUE,Handler->Local.block,Handler->Local.stmin,
-                    Handler->CanTx);
+                    Cantp_FlowControl(Handler->TxIdList[i],CANTP_FLOW_STATUS_CONTINUE,Handler->Local.block,Handler->Local.stmin,Handler->CanTx);
                 }break;
                 case CANTP_CONSECUTIVE_FRAME:
                 {
                     if(Handler->Rxmsg[i].multi == FALSE) return;
 
-                    if(Handler->Rxmsg[i].allsize >= Handler->Rxmsg[i].size + 7)
+                    if(Handler->Rxmsg[i].allsize >= Handler->Rxmsg[i].size + (CANTP_FRAME_BYTE - 1))
                     {
-                        memcpy(Handler->Rxmsg[i].payload + Handler->Rxmsg[i].size, msg_c+1, 7);
-                        Handler->Rxmsg[i].size += 7;
+                        memcpy(Handler->Rxmsg[i].payload + Handler->Rxmsg[i].size, msg_c+1, (CANTP_FRAME_BYTE -1));
+                        Handler->Rxmsg[i].size += (CANTP_FRAME_BYTE - 1);
                         Handler->Rxmsg[i].frame++;
                     }
                     else
@@ -415,10 +483,11 @@ void Cantp_RxTask(Cantp_HandlerStruct* Handler, Cantp_CallWay way,uint32_t id, u
                         Handler->Rxmsg[i].completed = TRUE;
                         Handler->Rxmsg[i].multi = FALSE;
                         for(int i = 0; i < CANTP_CALL_MAX; i++)
-                            Handler->RxCallback[i](Handler->RxIdList[i],Handler->Rxmsg[i].payload,Handler->Rxmsg[i].size);
+                            if(Handler->RxCallback[i] != NULL)
+                                Handler->RxCallback[i](Handler->RxIdList[i],Handler->Rxmsg[i].payload,Handler->Rxmsg[i].size);
                     }
                     //Each block needs to receive the flow control frame
-                    if(Handler->Rxmsg[i].frame%Handler->Local.block == 0)
+                    if(Handler->Rxmsg[i].frame % Handler->Local.block == 0)
                     {
                         Cantp_FlowControl(Handler->TxIdList[i],CANTP_FLOW_STATUS_CONTINUE,Handler->Local.block,
                         Handler->Local.stmin,Handler->CanTx);
@@ -428,10 +497,12 @@ void Cantp_RxTask(Cantp_HandlerStruct* Handler, Cantp_CallWay way,uint32_t id, u
                 case CANTP_FLOWCONTROL_FRAME: //receive the flow control frame
                 {
                     if(Handler->TxState.wait != TRUE) return;
-                    Handler->Rxmsg[i].flow = TRUE; 
+
                     Handler->Remote[i].block = *(msg_c+1);
                     Handler->Remote[i].status = (Cantp_FlowStatus)(*(msg_c) & 0x0F);
                     Handler->Remote[i].stmin = *(msg_c+2);
+                    if(CANTP_FLOW_STATUS_CONTINUE == Handler->Remote[i].status)
+                        Handler->Rxmsg[i].flow = TRUE;
                 }break;
                 default: break;
             }

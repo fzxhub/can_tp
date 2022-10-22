@@ -32,7 +32,11 @@ typedef unsigned int       uint32_t;
 typedef unsigned char      bool_t;
 /***************************************************************************************************************/
 //only used for TxBlocking
-#define DELAY_US(x)         ;                      
+#define DELAY_MS(x)         ; 
+//CANTP Block send Time interval (MS)
+#define CANTP_FRAME_INTER  10 
+//CANTP Block send Time flow (MS)
+#define CANTP_WAIT_FLOW    500                     
 /***************************************************************************************************************/
 //CANTP frame most bytes
 #define CANTP_FRAME_BYTE   8
@@ -40,6 +44,8 @@ typedef unsigned char      bool_t;
 #define CANTP_FRAME_FILL   TRUE
 //CANTP Invalid content to fill
 #define CANTP_FRAME_VOID   0XAA
+//CANTP send Time flow (TX cycle)
+#define CANTP_TXWAIT_FLOW  100    
 //CANTP Protocol maximum bytes
 #define CANTP_MESSAGE_BYTE 4095
 //CANTP maximum bytes(cache)
@@ -78,7 +84,7 @@ typedef bool_t (*Cantp_CanRx_t)(uint32_t* id, uint8_t* msg, uint32_t* size);
 //CAN Receive Call Back
 typedef void (*Cantp_RxCallback_t)(uint32_t id, uint8_t* msg, uint32_t size);
 //CAN Send Call Back
-typedef void (*Cantp_TxCallback_t)(uint32_t id);
+typedef void (*Cantp_TxCallback_t)(uint32_t id, bool_t results);
 
 /***************************************************************************************************************/
 //RX
@@ -112,8 +118,10 @@ typedef struct {
 typedef struct {
     uint32_t RxIdList[CANTP_ID_MAX];
     uint32_t TxIdList[CANTP_ID_MAX];  
+
     Cantp_AbilityStruct Remote[CANTP_ID_MAX];
     Cantp_RxMsgStruct   Rxmsg[CANTP_ID_MAX]; 
+
     Cantp_AbilityStruct Local;
     Cantp_TxStateStruct TxState;
 
@@ -126,8 +134,9 @@ typedef struct {
 
 /***********************************************************************************************************************/
 void   Cantp_CanRegister(Cantp_HandlerStruct* Handler, Cantp_CanTx_t tx, Cantp_CanRx_t rx);
-void Cantp_CallbackRegister(Cantp_HandlerStruct* Handler, uint32_t ch, Cantp_TxCallback_t tx, Cantp_RxCallback_t rx);
+void   Cantp_CallbackRegister(Cantp_HandlerStruct* Handler, uint32_t ch, Cantp_TxCallback_t tx, Cantp_RxCallback_t rx);
 void   Cantp_CanidRegister(Cantp_HandlerStruct* Handler, uint32_t ch, uint32_t txid, uint32_t rxid);
+void   Cantp_AbilityRegister(Cantp_HandlerStruct* Handler, uint8_t stmin, uint8_t block);
 /***********************************************************************************************************************/
 bool_t Cantp_TxBlocking(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size);
 bool_t Cantp_Tx(Cantp_HandlerStruct* Handler, uint32_t id, uint8_t* msg, uint32_t size);
