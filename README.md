@@ -45,7 +45,7 @@ typedef bool (*Cantp_CanRx)(uint32_t* id, uint8_t* msg, uint32_t* size);
 //CAN Receive Call Back
 typedef void (*Cantp_RxCallback_t)(uint32_t id, uint8_t* msg, uint32_t size);
 //CAN Send Call Back
-typedef void (*Cantp_TxCallback_t)(uint32_t id);
+typedef void (*Cantp_TxCallback_t)(uint32_t id, bool_t results);
 ```
 
 ## 使用步骤
